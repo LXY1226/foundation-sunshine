@@ -12,10 +12,7 @@ if /I "%~1"=="force" (
 )
 
 rem Check if a compatible version of ViGEmBus is already installed (1.17 or later)
-rem
-rem Note: We use exit code 2 to indicate success because either 0 or 1 may be returned
-rem based on the PowerShell version if an exception occurs.
-powershell -c Exit $(if ((Get-Item "$env:SystemRoot\System32\drivers\ViGEmBus.sys").VersionInfo.FileVersion -ge [System.Version]"1.17") { 2 } Else { 1 })
+powershell -NoProfile -Command "if (Test-Path ($env:SystemRoot + '\System32\drivers\ViGEmBus.sys')) { if ((Get-Item ($env:SystemRoot + '\System32\drivers\ViGEmBus.sys')).VersionInfo.FileVersion -ge [System.Version]'1.17') { exit 2 } }; exit 1"
 if %ERRORLEVEL% EQU 2 (
     goto skip
 )
@@ -27,7 +24,7 @@ exit /b 0
 
 :continue
 rem Get temp directory
-set temp_dir=%temp%/Sunshine
+set "temp_dir=%temp%\Sunshine"
 
 rem Create temp directory if it doesn't exist
 if not exist "%temp_dir%" mkdir "%temp_dir%"
@@ -62,13 +59,37 @@ set browser_download_url=%browser_download_url:"=%
 rem Remove the browser_download_url key
 set browser_download_url=%browser_download_url:browser_download_url: =%
 
+if "%browser_download_url%"=="" (
+  echo ERROR: Could not resolve ViGEmBus download URL.
+  exit /b 1
+)
+
 echo %browser_download_url%
 
 rem Download the exe
-curl -s -L !proxy! -o "%temp_dir%\virtual_gamepad.exe" https://mirror.ghproxy.com/%browser_download_url%
+set "installer=%temp_dir%\virtual_gamepad.exe"
+curl -f -s -L !proxy! -o "%installer%" "%browser_download_url%"
+if errorlevel 1 (
+  echo Direct download failed, trying mirror...
+  curl -f -s -L !proxy! -o "%installer%" "https://mirror.ghproxy.com/%browser_download_url%"
+)
+
+if not exist "%installer%" (
+  echo ERROR: Failed to download ViGEmBus installer.
+  exit /b 1
+)
+
+for %%I in ("%installer%") do if %%~zI LEQ 0 (
+  echo ERROR: Downloaded ViGEmBus installer is empty.
+  del /f /q "%installer%" >nul 2>&1
+  exit /b 1
+)
 
 rem Install Virtual Gamepad
-%temp_dir%\virtual_gamepad.exe /passive /promptrestart
+"%installer%" /passive /promptrestart
+set "INSTALL_RESULT=%ERRORLEVEL%"
 
 rem Delete temp directory
 rmdir /S /Q "%temp_dir%"
+
+exit /b %INSTALL_RESULT%
